@@ -1,3 +1,3 @@
 g++ main.cpp -o main -lm
-./main
+./main < input.txt > output.txt
 rm main
