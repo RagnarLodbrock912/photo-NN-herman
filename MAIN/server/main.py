@@ -1,40 +1,49 @@
-from fastapi import FastAPI, File, UploadFile
+from fastapi import FastAPI, File, UploadFile, Request, Form
+from fastapi.responses import HTMLResponse
 import uvicorn
-from PIL import Image
 import numpy as np
 from io import BytesIO
+from fastapi.templating import Jinja2Templates
+from fastapi.staticfiles import StaticFiles
+from models import filterData
+from child_process import run_child_process
+import json
+
+templates = Jinja2Templates(directory="templates")
 
 app = FastAPI()
 
-def get_rgb_channels(image: Image.Image):
-    image_rgb = image.convert('RGB')
-    np_image = np.array(image_rgb)
-    
-    red_channel = np_image[:,:,0]
-    green_channel = np_image[:,:,1]
-    blue_channel = np_image[:,:,2]
-    
-    return red_channel, green_channel, blue_channel
+app.mount("/static", StaticFiles(directory="static"), name="static")
 
-@app.post("/uploadfile/")
-async def create_upload_file(file: UploadFile = File(...)):
-    image_bytes = await file.read()
-    image = Image.open(BytesIO(image_bytes))
+INPUT_IMAGE_PATH = "input_images/"
+OUTPUT_IMAGE_PATH = "static/images/"
+
+@app.post("/process-image")
+async def process_image(filter: str = Form(...), file: UploadFile = File(...)):
+    parsed_filter = filterData.model_validate_json(filter)
+
+    image_path = INPUT_IMAGE_PATH + file.filename
     
-    red_channel, green_channel, blue_channel = get_rgb_channels(image)
-    print(red_channel.tolist())
-    print('-' * 100)
-    print(green_channel.tolist())
-    print('-' * 100)
-    print(blue_channel.tolist())
+    contents = await file.read()
+
+    with open(image_path, 'wb') as f:
+        f.write(contents)
+
+    stdin = f"{len(parsed_filter.filter)}\n{"\n".join([" ".join(map(str, _list)) for _list in parsed_filter.filter])}\n{file.filename}\n"
+
+    run_child_process(
+        _CMD="../NN/main",
+        _stdin=stdin
+    )
 
     return {
-        "filename": file.filename, 
-        "red_channel": len(red_channel.tolist()), 
-        "green_channel": len(green_channel.tolist()),
-        "blue_channel": len(blue_channel.tolist())
+        "detail": "success",
+        "image_url": OUTPUT_IMAGE_PATH + file.filename
     }
-
+    
+@app.get("/", response_class=HTMLResponse)
+async def read_root(request: Request):
+    return templates.TemplateResponse("index.html", {"request": request})
 
 
 if __name__ == "__main__":

@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>Фильтр для сверточной нейросети</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f0f0f0;
+            margin: 0;
+            padding: 20px;
+            text-align: center;
+        }
+        img {
+            max-width: 300px;
+            border-radius: 12px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+            margin-top: 10px;
+        }
+        select, button, input[type="file"] {
+            padding: 8px 12px;
+            margin-top: 10px;
+            font-size: 16px;
+            border: 1px solid #ccc;
+            border-radius: 8px;
+            background-color: #fff;
+            cursor: pointer;
+        }
+        select:hover, button:hover, input[type="file"]:hover {
+            background-color: #e0e0e0;
+        }
+        table {
+            margin: 20px auto 0;
+            border-collapse: collapse;
+        }
+        td {
+            border: 1px solid #ccc;
+            padding: 5px;
+        }
+        input[type="number"] {
+            width: 60px;
+            padding: 5px;
+            border: 1px solid #ccc;
+            border-radius: 6px;
+            text-align: center;
+        }
+        #output {
+            margin-top: 20px;
+            background: #fff;
+            padding: 15px;
+            border-radius: 10px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+            display: inline-block;
+            text-align: left;
+        }
+        #image {
+            display: none;
+            margin: 20px auto;
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <div>
+        <input type="file" id="upload" accept="image/*" onchange="loadImage(event)">
+        <br>
+        <img id="image" src="" alt="Фото" style="display:none;">
+
+        <div>
+            <label>Размер фильтра: </label>
+            <select id="size" onchange="createTable()">
+                <option value="2">2x2</option>
+                <option value="3">3x3</option>
+                <option value="5">5x5</option>
+            </select>
+        </div>
+
+        <div id="table-container"></div>
+
+        <button onclick="convolutionPicture()">Convulate picture</button>
+
+    </div>
+
+    <script>
+        function loadImage(event) {
+            const img = document.getElementById('image');
+            URL.revokeObjectURL(img.src);
+            img.src = URL.createObjectURL(event.target.files[0]);
+            img.style.display = 'block';
+        }
+
+        function createTable() {
+            const size = parseInt(document.getElementById('size').value);
+            const container = document.getElementById('table-container');
+            container.innerHTML = '';
+            
+            const table = document.createElement('table');
+            
+            for (let i = 0; i < size; i++) {
+                const row = document.createElement('tr');
+                for (let j = 0; j < size; j++) {
+                    const cell = document.createElement('td');
+                    const input = document.createElement('input');
+                    input.type = 'number';
+                    cell.appendChild(input);
+                    row.appendChild(cell);
+                }
+                table.appendChild(row);
+            }
+
+            container.appendChild(table);
+        }
+
+        function getMatrix() {
+            const table = document.querySelector('#table-container table');
+            const matrix = [];
+            if (!table) return;
+
+            for (let row of table.rows) {
+                const rowData = [];
+                for (let cell of row.cells) {
+                    const value = parseFloat(cell.firstChild.value) || 0;
+                    rowData.push(value);
+                }
+                matrix.push(rowData);
+            }
+            console.log(matrix);
+            return matrix
+        }
+
+        function convolutionPicture() {
+            const matrix = getMatrix();
+
+            const uploadInput = document.getElementById('upload');
+            const file = uploadInput.files[0];
+
+            if (!file) {
+                alert("Пожалуйста, загрузите изображение.");
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append('file', file);
+            formData.append('filter', JSON.stringify({ filter: matrix }));
+
+            fetch('/process-image', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                console.log(data);
+                const img = document.getElementById('image');
+                img.src = data.image_url;
+            })
+            .catch((error) => {
+                console.error(error);
+            });
+        }
+
+        window.onload = createTable;
+    </script>
+</body>
+</html>

@@ -11,6 +11,3 @@ python3 -m venv venv
 pip install -r requirements.txt
 
 echo "All files successfully installed."
-
-
-
