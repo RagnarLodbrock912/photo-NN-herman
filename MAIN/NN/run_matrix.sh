@@ -1,3 +1,3 @@
-g++ matrix.cpp -o matrix -lm
+g++ matrix.cpp -o matrix -fopenmp -lm
 ./matrix > output.txt
 rm matrix

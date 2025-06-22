@@ -3,6 +3,9 @@
 #include <type_traits>
 #include <random>
 #include <iomanip>
+#include <chrono>
+#include <functional>
+#include <omp.h>
 
 using namespace std;
 
@@ -30,435 +33,483 @@ double relu(double x, bool is_derivative = false) {
     return (is_derivative) ? ((x > 0) ? 1 : 0) : ((x > 0) ? x : 0);
 }
 
+#include <iostream>
+#include <vector>
+#include <cmath>
+#include <stdexcept>
+#include <omp.h>
+
+using namespace std;
+
+long double random(double min = -1.0, double max = 1.0) {
+    return min + (max - min) * ((long double)rand() / RAND_MAX);
+}
+
+long double sigmoid(long double x, bool derivative = false) {
+    if (derivative) {
+        long double s = sigmoid(x);
+        return s * (1 - s);
+    }
+    return 1.0L / (1.0L + exp(-x));
+}
+
+long double relu(long double x, bool derivative = false) {
+    return derivative ? (x > 0 ? 1.0L : 0.0L) : max(0.0L, x);
+}
+
 class Matrix {
-    private:
-        vector<long double> matrix;
-        size_t cols;
-        size_t rows;
-    public:
-        Matrix(size_t m_cols, size_t m_rows, long double el = 0.0L){
-            this->cols = m_cols;
-            this->rows = m_rows;
-            vector<long double> m_matrix(cols * rows, el);
-            this->matrix = m_matrix; 
-        }
+private:
+    vector<long double> matrix;
+    size_t cols;
+    size_t rows;
 
-        friend ostream& operator<<(ostream& out, const Matrix& matr) {
-            for (int i = 0; i < matr.rows; i++) {
-                for (int j = 0; j < matr.cols; j++) {
-                    out << matr.matrix[i + j] << " ";
-                }
-                out << endl;
+public:
+    Matrix(size_t m_cols, size_t m_rows, long double el = 0.0L)
+        : cols(m_cols), rows(m_rows), matrix(m_cols * m_rows, el) {}
+
+    friend ostream& operator<<(ostream& out, const Matrix& matr) {
+        for (size_t i = 0; i < matr.rows; i++) {
+            for (size_t j = 0; j < matr.cols; j++) {
+                out << matr(i, j) << " ";
             }
-            
-            return out;
+            out << endl;
         }
+        return out;
+    }
 
-        
-        long double& operator()(size_t row, size_t col) {
-            return this->matrix[row * this->cols + col];
-        }
+    long double& operator()(size_t row, size_t col) {
+        return matrix[row * cols + col];
+    }
 
-        const long double operator()(size_t row, size_t col) const {
-            return this->matrix[row * this->cols + col];
-        }
-        
-        Matrix T() {
-            Matrix result(this->rows, this->cols);
+    const long double operator()(size_t row, size_t col) const {
+        return matrix[row * cols + col];
+    }
 
-            for(size_t i = 0; i < this->rows; i++) { 
-                for(size_t j = 0; j < this->cols; j++) {
-                    result(j, i) = this->operator()(i, j);
-                }
+    Matrix T() const {
+        Matrix result(rows, cols);
+        #pragma omp parallel for collapse(2)
+        for (size_t i = 0; i < rows; i++)
+            for (size_t j = 0; j < cols; j++)
+                result(j, i) = (*this)(i, j);
+        return result;
+    }
+
+    Matrix operator+(const Matrix& other) const {
+        if (cols != other.cols || rows != other.rows)
+            throw out_of_range("Different dimensions");
+
+        Matrix result(cols, rows);
+        #pragma omp parallel for collapse(2)
+        for (size_t i = 0; i < rows; i++)
+            for (size_t j = 0; j < cols; j++)
+                result(i, j) = (*this)(i, j) + other(i, j);
+        return result;
+    }
+
+    Matrix& operator+=(const Matrix& other) {
+        if (cols != other.cols || rows != other.rows)
+            throw out_of_range("Different dimensions");
+
+        #pragma omp parallel for collapse(2)
+        for (size_t i = 0; i < rows; i++)
+            for (size_t j = 0; j < cols; j++)
+                (*this)(i, j) += other(i, j);
+        return *this;
+    }
+
+    Matrix operator-(const Matrix& other) const {
+        if (cols != other.cols || rows != other.rows)
+            throw out_of_range("Different dimensions");
+
+        Matrix result(cols, rows);
+        #pragma omp parallel for collapse(2)
+        for (size_t i = 0; i < rows; i++)
+            for (size_t j = 0; j < cols; j++)
+                result(i, j) = (*this)(i, j) - other(i, j);
+        return result;
+    }
+
+    Matrix& operator-=(const Matrix& other) {
+        if (cols != other.cols || rows != other.rows)
+            throw out_of_range("Different dimensions");
+
+        #pragma omp parallel for collapse(2)
+        for (size_t i = 0; i < rows; i++)
+            for (size_t j = 0; j < cols; j++)
+                (*this)(i, j) -= other(i, j);
+        return *this;
+    }
+
+    Matrix operator^(const Matrix& other) const {
+        if (cols != other.cols || rows != other.rows)
+            throw out_of_range("Different dimensions");
+
+        Matrix result(cols, rows);
+        #pragma omp parallel for collapse(2)
+        for (size_t i = 0; i < rows; i++)
+            for (size_t j = 0; j < cols; j++)
+                result(i, j) = (*this)(i, j) * other(i, j);
+        return result;
+    }
+
+    Matrix operator*(const long double scalar) const {
+        Matrix result(cols, rows);
+        #pragma omp parallel for collapse(2)
+        for (size_t i = 0; i < rows; i++)
+            for (size_t j = 0; j < cols; j++)
+                result(i, j) = (*this)(i, j) * scalar;
+        return result;
+    }
+
+    Matrix operator/=(const long double scalar) const {
+        if (scalar == 0)
+            throw invalid_argument("Division by zero");
+
+        Matrix result(cols, rows);
+        #pragma omp parallel for collapse(2)
+        for (size_t i = 0; i < rows; i++)
+            for (size_t j = 0; j < cols; j++)
+                result(i, j) = (*this)(i, j) / scalar;
+        return result;
+    }
+
+    Matrix operator*(const Matrix& other) const {
+        if (cols != other.rows)
+            throw invalid_argument("Invalid dimensions for multiplication");
+
+        Matrix result(other.cols, rows);
+        #pragma omp parallel for collapse(2)
+        for (size_t i = 0; i < rows; i++) {
+            for (size_t j = 0; j < other.cols; j++) {
+                long double sum = 0;
+                for (size_t k = 0; k < cols; k++)
+                    sum += (*this)(i, k) * other(k, j);
+                result(i, j) = sum;
             }
-            
-            return result;
         }
+        return result;
+    }
 
-        Matrix operator+(const Matrix& other) const {
-            if (this->cols != other.cols || this->rows != other.rows) {
-                throw out_of_range("Different dimensions");
-            }   
-            
-            Matrix result(this->cols, this->rows);
-            for (int i = 0; i < this->rows; i++) {
-                for (int j = 0; j < this->cols; j++) {
-                    result(i, j) = this->operator()(i, j) + other.matrix[i * cols + j];
-                }
-            }
+    void randomize(double min = -1.0, double max = 1.0) {
+        #pragma omp parallel
+        {
+            std::random_device rd;
+            std::mt19937 gen(rd() + omp_get_thread_num());
+            std::uniform_real_distribution<long double> distrib(min, max);
 
-            return result;
-        }
-
-        Matrix& operator+=(const Matrix& other) {
-            if (this->cols != other.cols || this->rows != other.rows) {
-                throw out_of_range("Different dimensions");
-            }   
-            
-            for (int i = 0; i < this->rows; i++) {
-                for (int j = 0; j < this->cols; j++) {
-                    this->operator()(i, j) = this->operator()(i, j) + other.matrix[i * cols + j];
-                }
-            }
-
-            return *this;
-        }
-        
-        Matrix operator-(const Matrix& other) const {
-            if (this->cols != other.cols || this->rows != other.rows) {
-                throw out_of_range("Different dimensions");
-            }   
-            
-            Matrix result(this->cols, this->rows);
-            for (int i = 0; i < this->rows; i++) {
-                for (int j = 0; j < this->cols; j++) {
-                    result(i, j) = this->operator()(i, j) - other.matrix[i * cols + j];
-                }
-            }
-
-            return result;
-        }
-
-        Matrix& operator-=(const Matrix& other) {
-            if (this->cols != other.cols || this->rows != other.rows) {
-                throw out_of_range("Different dimensions");
-            }   
-            
-            for (int i = 0; i < this->rows; i++) {
-                for (int j = 0; j < this->cols; j++) {
-                    this->operator()(i, j) = this->operator()(i, j) - other.matrix[i * this->cols + j];
-                }
-            }
-
-            return *this;
-        }
-
-        Matrix operator^(const Matrix& other) const { //Harmard product
-            if (this->cols != other.cols || this->rows != other.rows) {
-                throw out_of_range("Different dimensions");
-            }   
-            
-            Matrix result(this->cols, this->rows);
-
-            for (int i = 0; i < this->rows; i++) {
-                for (int j = 0; j < this->cols; j++) {
-                    result(i, j) = this->operator()(i, j) * other.matrix[i * this->cols + j];
-                }
-            }
-
-            return result;
-        }
-
-        Matrix operator*(const long double scalar) const {
-            Matrix result(this->cols, this->rows);
-
-            for (int i = 0; i < this->rows; i++) {
-                for (int j = 0; j < this->cols; j++) {
-                    result(i, j) = this->operator()(i, j) * scalar;
-                }
-            }
-
-            return result;
-        }
-
-        Matrix operator/=(const long double scalar) const {
-            Matrix result(this->cols, this->rows);
-            if (scalar == 0) {
-                throw invalid_argument("Division by zero");
-            }
-            for (int i = 0; i < this->rows; i++) {
-                for (int j = 0; j < this->cols; j++) {
-                    result(i, j) = this->operator()(i, j) / scalar;
-                }
-            }
-
-            return *this;
-        }
-        
-        Matrix operator*(Matrix& other) const {
-            if (this->cols != other.rows) {
-                throw invalid_argument("Amount of cols must equal amount of rows for multiplying matrixes");
-            }   
-
-            Matrix result(this->cols, other.rows);
-
-            for (int i = 0; i < this->rows; i++) {
-                for (int j = 0; j < other.cols; j++) {
-                    result(i, j) = 0;
-
-                    for (int k = 0; k < this->cols; k++) {
-                        result(i, j) += (this->matrix[i] * other(k, j));
-                    }
-                }
-            }
-
-            return result;
-        }
-
-        void randomize(double min=-1.0, double max=1.0) {
-            for (size_t i = 0; i < this->rows; i++) {
-                for (size_t j = 0; j < this->cols; j++) {
-                    this->operator()(i, j) = ::random(min, max);
+            #pragma omp for collapse(2)
+            for (size_t i = 0; i < rows; i++) {
+                for (size_t j = 0; j < cols; j++) {
+                    (*this)(i, j) = distrib(gen);
                 }
             }
         }
+    }
 
-        Matrix sigmoid(bool is_derivative = false) const {
+    Matrix sigmoid(bool is_derivative = false) const {
+        Matrix result(cols, rows);
+        #pragma omp parallel for collapse(2)
+        for (size_t i = 0; i < rows; i++)
+            for (size_t j = 0; j < cols; j++)
+                result(i, j) = ::sigmoid((*this)(i, j), is_derivative);
+        return result;
+    }
 
-            Matrix result(this->cols, this->rows);
+    Matrix ReLU(bool is_derivative = false) const {
+        Matrix result(cols, rows);
+        #pragma omp parallel for collapse(2)
+        for (size_t i = 0; i < rows; i++)
+            for (size_t j = 0; j < cols; j++)
+                result(i, j) = ::relu((*this)(i, j), is_derivative);
+        return result;
+    }
 
-            for (size_t i = 0; i < this->rows; i++) {
-                for(size_t j = 0; j < this->cols; j++) {
-                    result(i, j) = ::sigmoid(this->operator()(i, j), is_derivative);
-                }
+    long double cross_entropy(const Matrix& ideal) const {
+        if (rows != ideal.rows || cols != ideal.cols)
+            throw invalid_argument("Matrix sizes must match");
+
+        long double res = 0.0L;
+        #pragma omp parallel for collapse(2) reduction(+:res)
+        for (size_t i = 0; i < rows; i++)
+            for (size_t j = 0; j < cols; j++)
+                res += -1.0L * ideal(i, j) * log((*this)(i, j));
+        return res;
+    }
+
+    Matrix softmax() const {
+        Matrix result(cols, rows);
+        long double exp_sum = 0.0L;
+
+        #pragma omp parallel for collapse(2) reduction(+:exp_sum)
+        for (size_t i = 0; i < rows; i++)
+            for (size_t j = 0; j < cols; j++) {
+                result(i, j) = exp((*this)(i, j));
+                exp_sum += result(i, j);
             }
 
-            return result;
-        }
+        #pragma omp parallel for collapse(2)
+        for (size_t i = 0; i < rows; i++)
+            for (size_t j = 0; j < cols; j++)
+                result(i, j) /= exp_sum;
+        return result;
+    }
 
-        Matrix ReLU(bool is_derivative = false) const {
-
-            Matrix result(this->cols, this->rows);
-
-            for (size_t i = 0; i < this->rows; i++) {
-                for(size_t j = 0; j < this->cols; j++) {
-                    result(i, j) = ::relu(this->operator()(i, j), is_derivative);
-                }
-            }
-
-            return result;
-        }
-
-        long double cross_entropy(const Matrix& ideal) const {
-
-            if (this->rows != ideal.rows || this->cols != ideal.cols) {
-                throw invalid_argument("Matrices must be of the same dimension (cross_entropy)\n");
-            }
-            
-            long double res = 0.0L;
-            for (size_t i = 0; i < this->rows; i++) {
-                for (size_t j = 0; j < this->cols; j++) {
-                    res += -1 *  ideal(i, j) * log(this->operator()(i, j));
-                }
-            }
-
-            return res;
-        }
-
-        Matrix softmax() const {
-
-            Matrix result(this->cols, this->rows);
-            long double exp_sum = 0.0f;
-
-            for (size_t i = 0; i < this->rows; i++) {
-                for(size_t j = 0; j < this->cols; j++) {
-                    result(i, j) = exp(this->operator()(i, j));
-                    exp_sum += result(i, j);
-                }
-            }
-
-            for (size_t i = 0; i < this->rows; i++) {
-                for(size_t j = 0; j < this->cols; j++) {
-                    result(i, j) /= exp_sum;
-                }
-            }
-
-            return result;
-        }
-
-        vector<long double> vectorise() const {
-            return this->matrix;
-        }
+    vector<long double> vectorise() const {
+        return matrix;
+    }
 };
 
 class Tensor {
-    private:
-        vector<long double> tensor;
-        size_t cols;
-        size_t rows;
-        size_t layers;
-    public:
-        Tensor(size_t t_layers, size_t t_cols, size_t t_rows, long double el = 0.0) {
-            this->tensor = vector<long double>(t_cols * t_rows * t_layers, el);
-            this->cols = t_cols;
-            this->rows = t_rows;
-            this->layers = t_layers;
+private:
+    vector<long double> tensor;
+    size_t cols;
+    size_t rows;
+    size_t layers;
+public:
+    Tensor(size_t t_layers, size_t t_cols, size_t t_rows, long double el = 0.0) {
+        this->tensor = vector<long double>(t_cols * t_rows * t_layers, el);
+        this->cols = t_cols;
+        this->rows = t_rows;
+        this->layers = t_layers;
+    }
+
+    long double& operator()(size_t layer, size_t col, size_t row) {
+        return tensor[layer * (this->cols  * this->rows) + row * this->cols + col];
+    }
+
+    const long double operator()(size_t layer, size_t col, size_t row) const {
+        return tensor[layer * (this->cols  * this->rows) + row * this->cols + col];
+    }
+
+    Tensor convolve(const Tensor& kernel) const {
+        if (kernel.layers % this->layers != 0) {
+            throw std::invalid_argument("Kernel layers must be divisible by input tensor layers");
         }
 
-        long double& operator()(size_t layer, size_t col, size_t row) {
-            return tensor[layer * (this->cols  * this->rows) + row * this->cols + col];
-        }
+        size_t out_channels = kernel.layers / this->layers;
 
-        const long double operator()(size_t layer, size_t col, size_t row) const {
-            return tensor[layer * (this->cols  * this->rows) + row * this->cols + col];
-        }
+        Tensor result(
+            out_channels,
+            this->cols - kernel.cols + 1,
+            this->rows - kernel.rows + 1
+        );
 
-        Tensor convolve(const Tensor& kernel) const {
-            if (kernel.layers % this->layers != 0) {
-                throw std::invalid_argument("Kernel layers must be divisible by input tensor layers");
-            }
-        
-            size_t out_channels = kernel.layers / this->layers;
-        
-            Tensor result(
-                out_channels,
-                this->cols - kernel.cols + 1,
-                this->rows - kernel.rows + 1
-            );
-        
-            for (size_t out_ch = 0; out_ch < out_channels; ++out_ch) {
-                for (size_t i = 0; i < result.cols; ++i) {
-                    for (size_t j = 0; j < result.rows; ++j) {
-                        long double sum = 0.0L;
-        
-                        for (size_t in_ch = 0; in_ch < this->layers; ++in_ch) {
-                            size_t kernel_layer = out_ch * this->layers + in_ch;
-        
-                            for (size_t dx = 0; dx < kernel.cols; ++dx) {
-                                for (size_t dy = 0; dy < kernel.rows; ++dy) {
-                                    long double val = this->operator()(in_ch, i + dx, j + dy);
-                                    long double weight = kernel(kernel_layer, dx, dy);
-                                    sum += val * weight;
-                                }
+        #pragma omp parallel for collapse(3)
+        for (size_t out_ch = 0; out_ch < out_channels; ++out_ch) {
+            for (size_t i = 0; i < result.cols; ++i) {
+                for (size_t j = 0; j < result.rows; ++j) {
+                    long double sum = 0.0L;
+
+                    for (size_t in_ch = 0; in_ch < this->layers; ++in_ch) {
+                        size_t kernel_layer = out_ch * this->layers + in_ch;
+
+                        for (size_t dx = 0; dx < kernel.cols; ++dx) {
+                            for (size_t dy = 0; dy < kernel.rows; ++dy) {
+                                long double val = this->operator()(in_ch, i + dx, j + dy);
+                                long double weight = kernel(kernel_layer, dx, dy);
+                                sum += val * weight;
                             }
                         }
-        
-                        result(out_ch, i, j) = sum;
                     }
+
+                    result(out_ch, i, j) = sum;
                 }
             }
-        
-            return result;
         }
-        
 
-        Tensor rot180() {
-            Tensor flipped(this->layers, this->cols, this->rows);
+        return result;
+    }
 
-            for (size_t layer = 0; layer < layers; layer++) {
-                for (size_t col = 0; col < cols; col++) {
-                    for (size_t row = 0; row < rows; row++) {
-                        flipped(layer, col, row) = this->operator()(layer, this->cols - 1 - col, this->rows - 1 - row);
-                    }
+    Tensor rot180() {
+        Tensor flipped(this->layers, this->cols, this->rows);
+
+        #pragma omp parallel for collapse(3)
+        for (size_t layer = 0; layer < layers; layer++) {
+            for (size_t col = 0; col < cols; col++) {
+                for (size_t row = 0; row < rows; row++) {
+                    flipped(layer, col, row) = this->operator()(layer, this->cols - 1 - col, this->rows - 1 - row);
                 }
             }
-
-            return flipped;
         }
 
-        void randomise(double min=-1.0, double max=1.0) {
-            for(size_t i = 0; i < this->tensor.size(); i++) {
-                this->tensor[i] = ::random(min, max);
-            }
+        return flipped;
+    }
+
+void randomise(double min = -1.0, double max = 1.0) {
+    #pragma omp parallel
+    {
+        std::random_device rd;
+        std::mt19937 gen(rd() + omp_get_thread_num());
+        std::uniform_real_distribution<long double> distrib(min, max);
+
+        #pragma omp for
+        for (size_t i = 0; i < this->tensor.size(); ++i) {
+            this->tensor[i] = distrib(gen);
+        }
+    }
+}
+
+
+    Tensor sigmoid(bool is_derivative=false) const {
+        Tensor result(this->layers, this->cols, this->rows);
+
+        #pragma omp parallel for
+        for(size_t i = 0; i < this->tensor.size(); i++) {
+            result.tensor[i] = ::sigmoid(this->tensor[i], is_derivative);
         }
 
-        Tensor sigmoid(bool is_derivative=false) const {
-            Tensor result(this->layers, this->cols, this->rows);
+        return result;
+    }
 
-            for(size_t i = 0; i < this->tensor.size(); i++) {
-                result.tensor[i] = ::sigmoid(this->tensor[i], is_derivative);
-            }
+    Tensor RelU(bool is_derivative=false) const {
+        Tensor result(this->layers, this->cols, this->rows);
 
-            return result;
+        #pragma omp parallel for
+        for(size_t i = 0; i < this->tensor.size(); i++) {
+            result.tensor[i] = ::relu(this->tensor[i], is_derivative);
         }
 
-        Tensor RelU(bool is_derivative=false) const {
-            Tensor result(this->layers, this->cols, this->rows);
+        return result;
+    }
 
-            for(size_t i = 0; i < this->tensor.size(); i++) {
-                result.tensor[i] = ::relu(this->tensor[i], is_derivative);
-            }
+    vector<long double> vectorise() const {
+        return this->tensor;
+    }
 
-            return result;
-        }
-
-        vector<long double> vectorise() const {
-            return this->tensor;
-        }
-
-        friend ostream& operator<<(ostream& out, const Tensor& t) {
-            for (size_t layer = 0; layer < t.layers; ++layer) {
-                out << "# Layer " << layer << " #" << endl;
-                for (size_t row = 0; row < t.rows; ++row) {
-                    for (size_t col = 0; col < t.cols; ++col) {
-                        out << setw(8) << fixed << setprecision(2)
-                            << t(layer, col, row) << " ";
-                    }
-                    out << endl;
+    friend ostream& operator<<(ostream& out, const Tensor& t) {
+        for (size_t layer = 0; layer < t.layers; ++layer) {
+            out << "# Layer " << layer << " #" << endl;
+            for (size_t row = 0; row < t.rows; ++row) {
+                for (size_t col = 0; col < t.cols; ++col) {
+                    out << setw(8) << fixed << setprecision(2)
+                        << t(layer, col, row) << " ";
                 }
-                out << string(20, '#') << "\n";
+                out << endl;
             }
-            return out;
+            out << string(20, '#') << "\n";
         }
-        
+        return out;
+    }
 };
 
+using namespace std::chrono;
+
+void test_time(const string& name, function<void()> func) {
+    auto start = high_resolution_clock::now();
+    func();
+    auto end = high_resolution_clock::now();
+    auto duration = duration_cast<milliseconds>(end - start).count();
+    cout << name << " took " << duration << " ms" << endl;
+}
+
 int main() {
-    // Тест 1: создание тензора
-    cout << "Тест 1: создание тензора 3x3x3" << endl;
-    Tensor t(3, 3, 3);
-    cout << t << endl;
+    const size_t SIZE = 10000;
 
-    // Тест 2: заполним тензор случайными числами и выведем его
-    cout << "Тест 2: заполнение случайными числами" << endl;
-    t.randomise(-5.0, 5.0);
-    cout << t << endl;
+    Matrix A(SIZE, SIZE);
+    Matrix B(SIZE, SIZE);
+    A.randomize();
+    B.randomize();
 
-    // Тест 3: конволюция
-    cout << "Тест 3: конволюция с ядром 2x2" << endl;
-    Tensor kernel(6, 2, 2); // ядро 2x2
-    kernel.randomise(-1.0, 1.0);
-    cout << "Ядро:" << endl;
-    cout << kernel << endl;
 
-    Tensor result = t.convolve(kernel);
-    cout << "Результат конволюции:" << endl;
-    cout << result << endl;
+    test_time("Matrix randomize", [&]() {
+        A.randomize();
+        B.randomize();
+    });
 
-    // Тест 4: поворот тензора на 180 градусов
-    cout << "Тест 4: поворот тензора на 180 градусов" << endl;
-    Tensor rotated = t.rot180();
-    cout << "Тензор после поворота на 180 градусов:" << endl;
-    cout << rotated << endl;
+    test_time("Matrix addition", [&]() {
+        Matrix C = A + B;
+    });
 
-    // Тест 5: сигмоида
-    cout << "Тест 5: сигмоида" << endl;
-    Tensor sigmoidResult = t.sigmoid();
-    cout << "Результат применения сигмоиды:" << endl;
-    cout << sigmoidResult << endl;
+    test_time("Matrix subtraction", [&]() {
+        Matrix C = A - B;
+    });
 
-    // Тест 6: ReLU
-    cout << "Тест 6: ReLU" << endl;
-    Tensor reluResult = t.RelU();
-    cout << "Результат применения ReLU:" << endl;
-    cout << reluResult << endl;
+    test_time("Matrix Hadamard (element-wise multiply)", [&]() {
+        Matrix C = A ^ B;
+    });
 
-    // Matrix a(2, 3, 1.0);
-    // Matrix b(2, 3, 2.0);
-    // Matrix c(3, 2, 3.0);
+    test_time("Matrix scalar multiplication", [&]() {
+        Matrix C = A * 3.1415L;
+    });
 
-    // cout << "a + b:\n" << (a + b) << endl;
-    // cout << "b - a:\n" << (b - a) << endl;
-    // cout << "a ^ b:\n" << (a ^ b) << endl;
-    // cout << "a * 5:\n" << (a * 5.0) << endl;
-    // cout << "Transpose a:\n" << (a.T()) << endl;
-    // cout << "Sigmoid(a):\n" << (a.sigmoid()) << endl;
-    // cout << "Sigmoid derivative(a):\n" << (a.sigmoid(true)) << endl;
-    // cout << "ReLU(a):\n" << (a.ReLU()) << endl;
-    // cout << "ReLU derivative(a):\n" << (a.ReLU(true)) << endl;
-    // cout << "Softmax(a):\n" << (a.softmax()) << endl;
-    // cout << "Cross Entropy(a, ideal=1):\n" << a.cross_entropy(Matrix(2, 3, 1.0)) << endl;
+    test_time("Matrix transpose", [&]() {
+        Matrix C = A.T();
+    });
 
-    // a.randomize(-1.0, 1.0);
-    // cout << "Randomized a:\n" << a << endl;
+    test_time("Matrix sigmoid activation", [&]() {
+        Matrix C = A.sigmoid();
+    });
 
-    // Matrix d(2, 3, 3.0);
-    // a += d;
-    // cout << "a += d:\n" << a << endl;
-    // a -= d;
-    // cout << "a -= d:\n" << a << endl;
+    test_time("Matrix ReLU activation", [&]() {
+        Matrix C = A.ReLU();
+    });
 
-    // cout << "a * c:\n" << (a * c) << endl;
+    test_time("Matrix softmax", [&]() {
+        Matrix C = A.softmax();
+    });
+
+    test_time("Cross entropy", [&]() {
+        long double loss = A.cross_entropy(B);
+    });
+
+    const size_t SMALL_SIZE = 1000;
+    Matrix M1(SMALL_SIZE, SMALL_SIZE);
+    Matrix M2(SMALL_SIZE, SMALL_SIZE);
+    M1.randomize();
+    M2.randomize();
+
+    test_time("Matrix multiplication", [&]() {
+        Matrix C = M1 * M2.T();
+    });
+
+    // srand(time(nullptr));
+
+    // const size_t LAYERS = 3;
+    // const size_t SIZE = 1000;
+
+    // Tensor A(LAYERS, SIZE, SIZE);
+    // Tensor B(LAYERS, SIZE, SIZE);
+
+    // A.randomise(-1.0, 1.0);
+    // B.randomise(-1.0, 1.0);
+
+    // const size_t K_LAYERS = LAYERS * 2;
+    // const size_t K_SIZE = 3;
+    // Tensor kernel(K_LAYERS, K_SIZE, K_SIZE);
+    // kernel.randomise(-1.0, 1.0);
+
+    //     Tensor C = A.convolve(kernel);
+    //     (void)C; // чтобы не ругался компилятор
+    // });
+
+    // test_time("Tensor rot180", [&]() {
+    //     Tensor C = A.rot180();
+    //     (void)C;
+    // });
+
+    // test_time("Tensor sigmoid activation", [&]() {
+    //     Tensor C = A.sigmoid();
+    //     (void)C;
+    // });
+
+    // test_time("Tensor ReLU activation", [&]() {
+    //     Tensor C = A.RelU();
+    //     (void)C;
+    // });
+
+    // test_time("Tensor randomise", [&]() {
+    //     A.randomise(-1.0, 1.0);
+    // });
+
+    // test_time("Tensor vectorise and sum", [&]() {
+    //     const auto& vec = A.vectorise();
+    //     long double sum = 0;
+    //     #pragma omp parallel for reduction(+:sum)
+    //     for (size_t i = 0; i < vec.size(); i++) {
+    //         sum += vec[i];
+    //     }
+    //     cout << "Sum = " << fixed << setprecision(4) << sum << "\n";
+    // });
 
     return 0;
 }
