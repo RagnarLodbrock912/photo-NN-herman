@@ -1,0 +1,11 @@
+Matrix randomize took 4192 ms
+Matrix addition took 1115 ms
+Matrix subtraction took 814 ms
+Matrix Hadamard (element-wise multiply) took 800 ms
+Matrix scalar multiplication took 806 ms
+Matrix transpose took 809 ms
+Matrix sigmoid activation took 1264 ms
+Matrix ReLU activation took 917 ms
+Matrix softmax took 1432 ms
+Cross entropy took 1538 ms
+Matrix multiplication took 2075 ms
